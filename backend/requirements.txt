@@ -1,0 +1,6 @@
+Flask
+Flask-Cors
+vaderSentiment
+pymongo
+python-dotenv
+reportlab
