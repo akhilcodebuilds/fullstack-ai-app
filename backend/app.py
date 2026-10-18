@@ -1,17 +1,24 @@
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from datetime import datetime, timezone
+
+import joblib
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from io import BytesIO
+
 from db import analysis_collection
+
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 
+# ============================================================
+# 1. FLASK APPLICATION
+# ============================================================
+
 app = Flask(__name__)
 
-# Allow the React frontend to connect from Vite ports 5173 and 5174.
 CORS(
     app,
     resources={
@@ -26,144 +33,284 @@ CORS(
     }
 )
 
-analyzer = SentimentIntensityAnalyzer()
+
+# ============================================================
+# 2. LOAD TRAINED MACHINE LEARNING MODEL
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = BASE_DIR.parent
+
+MODEL_PATH = PROJECT_DIR / "models" / "sentiment_model.joblib"
+
+if not MODEL_PATH.exists():
+    raise FileNotFoundError(
+        f"Trained model not found: {MODEL_PATH}"
+    )
+
+ml_model = joblib.load(MODEL_PATH)
+
+print("Trained ML model loaded successfully!")
+
 IST = ZoneInfo("Asia/Kolkata")
 
 
-# Convert MongoDB documents into JSON-safe values.
-# MongoDB commonly returns naive datetime objects in UTC when
-# the PyMongo client uses its default timezone configuration.
-def serialize_result(document):
-    document["_id"] = str(document["_id"])
+# ============================================================
+# 3. HELPER FUNCTIONS
+# ============================================================
 
-    created_at = document.get("created_at")
+def serialize_result(document):
+    """
+    Convert MongoDB documents into JSON-safe dictionaries.
+    """
+
+    result = dict(document)
+
+    if "_id" in result:
+        result["_id"] = str(result["_id"])
+
+    created_at = result.get("created_at")
 
     if isinstance(created_at, datetime):
+
         if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        else:
-            created_at = created_at.astimezone(timezone.utc)
+            created_at = created_at.replace(
+                tzinfo=timezone.utc
+            )
 
-        document["created_at"] = created_at.isoformat()
+        result["created_at"] = (
+            created_at
+            .astimezone(timezone.utc)
+            .isoformat()
+        )
 
-    return document
+    return result
 
 
-# Home route
+def get_sentiment_label(value):
+    """
+    Normalize sentiment labels for API responses.
+    """
+
+    return str(value).strip().capitalize()
+
+
+def get_all_results():
+    """
+    Retrieve analysis records from MongoDB.
+    """
+
+    documents = list(
+        analysis_collection.find().sort(
+            "created_at", -1
+        )
+    )
+
+    return documents
+
+
+def get_sentiment_counts(documents):
+    """
+    Count positive, negative and neutral predictions.
+    """
+
+    counts = {
+        "Positive": 0,
+        "Negative": 0,
+        "Neutral": 0
+    }
+
+    for document in documents:
+
+        label = get_sentiment_label(
+            document.get(
+                "sentiment",
+                document.get("prediction", "Unknown")
+            )
+        )
+
+        if label in counts:
+            counts[label] += 1
+
+    return counts
+
+
+# ============================================================
+# 4. HOME ROUTE
+# ============================================================
+
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({
-        "message": "AI Smart Analysis Dashboard Backend is running",
-        "status": "success"
-    })
 
-
-# Health check
-@app.route("/api/health", methods=["GET"])
-def health():
     return jsonify({
         "status": "success",
-        "message": "Backend connected successfully!"
-    })
+        "message": (
+            "AI Smart Analysis Dashboard Backend is running"
+        )
+    }), 200
 
 
-# Sentiment analysis
-@app.route("/api/sentiment", methods=["POST"])
+# ============================================================
+# 5. HEALTH CHECK API
+# ============================================================
+
+@app.route("/api/health", methods=["GET"])
+def health():
+
+    return jsonify({
+        "status": "success",
+        "message": "Backend connected successfully!",
+        "model": "TF-IDF + Logistic Regression"
+    }), 200
+
+
+# ============================================================
+# 6. SENTIMENT ANALYSIS API
+# ============================================================
+
+@app.route(
+    "/api/sentiment",
+    methods=["POST"],
+    strict_slashes=False
+)
 def sentiment_analysis():
+
     try:
-        data = request.get_json(silent=True) or {}
+
+        data = request.get_json(silent=True)
+
+        if not isinstance(data, dict):
+
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Send a valid JSON object "
+                    "in the request body."
+                )
+            }), 400
 
         text = data.get("text", "")
 
         if not isinstance(text, str):
+
             return jsonify({
                 "status": "error",
-                "message": "The text field must contain a string."
+                "message": (
+                    "The text field must contain a string."
+                )
             }), 400
 
         text = text.strip()
 
         if not text:
+
             return jsonify({
                 "status": "error",
                 "message": "Please enter some text to analyze."
             }), 400
 
-        # Analyze sentiment using VADER.
-        scores = analyzer.polarity_scores(text)
-        compound = scores["compound"]
+        # Predict sentiment using the trained ML model.
+        predicted_label = get_sentiment_label(
+            ml_model.predict([text])[0]
+        )
 
-        if compound >= 0.05:
-            sentiment = "Positive"
-        elif compound <= -0.05:
-            sentiment = "Negative"
-        else:
-            sentiment = "Neutral"
+        # Obtain class probabilities when supported.
+        probabilities = {}
 
-        # Store timestamps as timezone-aware UTC datetimes.
+        if hasattr(ml_model, "predict_proba"):
+
+            classes = ml_model.classes_
+
+            values = ml_model.predict_proba([text])[0]
+
+            probabilities = {
+                get_sentiment_label(label): round(
+                    float(score), 4
+                )
+                for label, score in zip(classes, values)
+            }
+
         created_at = datetime.now(timezone.utc)
 
+        # Store the analysis in MongoDB.
         result = {
             "text": text,
-            "sentiment": sentiment,
-            "prediction": sentiment,
-            "label": sentiment,
-            "compound": compound,
-            "compound_score": compound,
-            "positive": scores["pos"],
-            "negative": scores["neg"],
-            "neutral": scores["neu"],
-            "scores": scores,
+            "sentiment": predicted_label,
+            "prediction": predicted_label,
+            "label": predicted_label,
+            "model": "TF-IDF + Logistic Regression",
+            "probabilities": probabilities,
             "created_at": created_at
         }
 
-        # Save the analysis to MongoDB.
-        insert_result = analysis_collection.insert_one(result)
+        insert_result = analysis_collection.insert_one(
+            result
+        )
 
-        # Prepare a JSON-safe result for the API response.
-        response_result = result.copy()
-        response_result["_id"] = str(insert_result.inserted_id)
-        response_result["created_at"] = created_at.isoformat()
+        response_result = serialize_result({
+            **result,
+            "_id": insert_result.inserted_id
+        })
 
-        # Return important fields at the top level as well as
-        # inside "result" for compatibility with the React frontend.
         return jsonify({
             "status": "success",
-            "message": "Sentiment analysis completed successfully.",
-
-            # Top-level fields used by the frontend.
+            "message": (
+                "ML sentiment prediction completed successfully."
+            ),
             "text": text,
-            "sentiment": sentiment,
-            "prediction": sentiment,
-            "label": sentiment,
-            "compound": compound,
-            "compound_score": compound,
-            "positive": scores["pos"],
-            "negative": scores["neg"],
-            "neutral": scores["neu"],
-            "scores": scores,
+            "sentiment": predicted_label,
+            "prediction": predicted_label,
+            "label": predicted_label,
+            "model": "TF-IDF + Logistic Regression",
+            "probabilities": probabilities,
             "created_at": created_at.isoformat(),
-
-            # Keep the original nested response for compatibility.
             "result": response_result
         }), 200
 
-    except Exception as error:
-        app.logger.exception("Sentiment analysis failed")
+    except Exception:
+
+        app.logger.exception(
+            "ML sentiment prediction failed"
+        )
 
         return jsonify({
             "status": "error",
-            "message": "Unable to analyze the text.",
-            "details": str(error)
+            "message": (
+                "Unable to analyze the text. "
+                "Check the backend terminal for details."
+            )
         }), 500
 
 
-# Analysis history
+# ============================================================
+# 7. ANALYSIS HISTORY API
+# ============================================================
+
 @app.route("/api/history", methods=["GET"])
 def history():
+
     try:
+
+        # Optional pagination parameters.
+        try:
+            limit = int(request.args.get("limit", 100))
+            limit = max(1, min(limit, 500))
+        except (TypeError, ValueError):
+            limit = 100
+
+        try:
+            skip = int(request.args.get("skip", 0))
+            skip = max(0, skip)
+        except (TypeError, ValueError):
+            skip = 0
+
+        total = analysis_collection.count_documents({})
+
         documents = list(
-            analysis_collection.find().sort("_id", -1).limit(100)
+            analysis_collection.find()
+            .sort("created_at", -1)
+            .skip(skip)
+            .limit(limit)
         )
 
         results = [
@@ -173,228 +320,335 @@ def history():
 
         return jsonify({
             "status": "success",
-            "history": results,
-            "results": results,
-            "count": len(results)
+            "total": total,
+            "count": len(results),
+            "results": results
         }), 200
 
-    except Exception as error:
-        app.logger.exception("History fetch failed")
+    except Exception:
+
+        app.logger.exception(
+            "Unable to retrieve analysis history"
+        )
 
         return jsonify({
             "status": "error",
-            "message": "Unable to fetch analysis history.",
-            "details": str(error)
+            "message": "Unable to retrieve analysis history."
         }), 500
 
 
-# Dashboard statistics
+# ============================================================
+# 8. STATISTICS API
+# ============================================================
+
 @app.route("/api/stats", methods=["GET"])
 def stats():
+
     try:
-        total = analysis_collection.count_documents({})
 
-        positive = analysis_collection.count_documents({
-            "sentiment": "Positive"
-        })
+        documents = get_all_results()
 
-        negative = analysis_collection.count_documents({
-            "sentiment": "Negative"
-        })
+        counts = get_sentiment_counts(documents)
 
-        neutral = analysis_collection.count_documents({
-            "sentiment": "Neutral"
-        })
+        total = len(documents)
 
         return jsonify({
             "status": "success",
             "total": total,
             "total_analyses": total,
-            "positive": positive,
-            "negative": negative,
-            "neutral": neutral
+            "positive": counts["Positive"],
+            "negative": counts["Negative"],
+            "neutral": counts["Neutral"],
+            "sentiment_counts": counts
         }), 200
 
-    except Exception as error:
-        app.logger.exception("Statistics fetch failed")
+    except Exception:
+
+        app.logger.exception(
+            "Unable to calculate statistics"
+        )
 
         return jsonify({
             "status": "error",
-            "message": "Unable to fetch statistics.",
-            "details": str(error)
+            "message": "Unable to calculate statistics."
         }), 500
 
 
-# Sentiment trends
+# ============================================================
+# 9. SENTIMENT TRENDS API
+# ============================================================
+
 @app.route("/api/trends", methods=["GET"])
 def trends():
+
     try:
-        pipeline = [
-            {
-                "$group": {
-                    "_id": {
-                        "$dateToString": {
-                            "format": "%Y-%m-%d",
-                            "date": "$created_at",
-                            "timezone": "Asia/Kolkata"
-                        }
-                    },
-                    "positive": {
-                        "$sum": {
-                            "$cond": [
-                                {"$eq": ["$sentiment", "Positive"]},
-                                1,
-                                0
-                            ]
-                        }
-                    },
-                    "negative": {
-                        "$sum": {
-                            "$cond": [
-                                {"$eq": ["$sentiment", "Negative"]},
-                                1,
-                                0
-                            ]
-                        }
-                    },
-                    "neutral": {
-                        "$sum": {
-                            "$cond": [
-                                {"$eq": ["$sentiment", "Neutral"]},
-                                1,
-                                0
-                            ]
-                        }
-                    },
-                    "total": {"$sum": 1}
+
+        documents = get_all_results()
+
+        daily_counts = {}
+
+        for document in documents:
+
+            created_at = document.get("created_at")
+
+            if not isinstance(created_at, datetime):
+                continue
+
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(
+                    tzinfo=timezone.utc
+                )
+
+            local_date = (
+                created_at.astimezone(IST)
+                .strftime("%Y-%m-%d")
+            )
+
+            if local_date not in daily_counts:
+
+                daily_counts[local_date] = {
+                    "date": local_date,
+                    "positive": 0,
+                    "negative": 0,
+                    "neutral": 0,
+                    "total": 0
                 }
-            },
-            {"$sort": {"_id": 1}}
-        ]
 
-        trend_data = list(
-            analysis_collection.aggregate(pipeline)
+            label = get_sentiment_label(
+                document.get(
+                    "sentiment",
+                    document.get("prediction", "Unknown")
+                )
+            )
+
+            if label == "Positive":
+                daily_counts[local_date]["positive"] += 1
+
+            elif label == "Negative":
+                daily_counts[local_date]["negative"] += 1
+
+            elif label == "Neutral":
+                daily_counts[local_date]["neutral"] += 1
+
+            daily_counts[local_date]["total"] += 1
+
+        trend_data = sorted(
+            daily_counts.values(),
+            key=lambda item: item["date"]
         )
-
-        for item in trend_data:
-            item["date"] = item.pop("_id")
 
         return jsonify({
             "status": "success",
-            "trends": trend_data,
-            "data": trend_data
+            "count": len(trend_data),
+            "trends": trend_data
         }), 200
 
-    except Exception as error:
-        app.logger.exception("Trend fetch failed")
+    except Exception:
+
+        app.logger.exception(
+            "Unable to calculate sentiment trends"
+        )
 
         return jsonify({
             "status": "error",
-            "message": "Unable to fetch trends.",
-            "details": str(error)
+            "message": "Unable to calculate sentiment trends."
         }), 500
 
 
-# Generate PDF report
+# ============================================================
+# 10. PDF REPORT API
+# ============================================================
+
 @app.route("/api/report/pdf", methods=["GET"])
-def download_pdf_report():
+def report_pdf():
+
     try:
-        documents = list(
-            analysis_collection.find().sort("_id", -1).limit(100)
-        )
+
+        documents = get_all_results()
+
+        counts = get_sentiment_counts(documents)
+
+        total = len(documents)
 
         pdf_buffer = BytesIO()
+
         pdf = canvas.Canvas(
             pdf_buffer,
             pagesize=letter
         )
 
         page_width, page_height = letter
-        y = page_height - 50
 
-        pdf.setFont("Helvetica-Bold", 16)
-        pdf.drawString(
-            40,
-            y,
-            "AI Smart Analysis Dashboard Report"
-        )
-        y -= 30
+        # Report title.
+        pdf.setTitle("AI Smart Analysis Dashboard Report")
 
-        # Display report generation time in Indian Standard Time.
-        generated_at = datetime.now(IST)
-
-        pdf.setFont("Helvetica", 10)
-        pdf.drawString(
-            40,
-            y,
-            f"Generated (IST): {generated_at.strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-        y -= 30
+        pdf.setFont("Helvetica-Bold", 18)
 
         pdf.drawString(
-            40,
-            y,
-            f"Total records in report: {len(documents)}"
+            50,
+            page_height - 55,
+            "AI Smart Analysis Dashboard"
         )
-        y -= 30
 
-        for index, doc in enumerate(documents, start=1):
-            if y < 100:
+        pdf.setFont("Helvetica", 11)
+
+        pdf.drawString(
+            50,
+            page_height - 80,
+            "Sentiment Analysis Report"
+        )
+
+        pdf.drawString(
+            50,
+            page_height - 105,
+            "Model: TF-IDF + Logistic Regression"
+        )
+
+        pdf.drawString(
+            50,
+            page_height - 125,
+            "Generated: "
+            + datetime.now(IST).strftime(
+                "%Y-%m-%d %H:%M:%S IST"
+            )
+        )
+
+        # Summary section.
+        y = page_height - 175
+
+        pdf.setFont("Helvetica-Bold", 14)
+
+        pdf.drawString(
+            50,
+            y,
+            "Summary Statistics"
+        )
+
+        y -= 25
+
+        pdf.setFont("Helvetica", 11)
+
+        summary_lines = [
+            f"Total analyses: {total}",
+            f"Positive predictions: {counts['Positive']}",
+            f"Negative predictions: {counts['Negative']}",
+            f"Neutral predictions: {counts['Neutral']}"
+        ]
+
+        for line in summary_lines:
+
+            pdf.drawString(60, y, line)
+
+            y -= 20
+
+        # Recent analysis section.
+        y -= 15
+
+        pdf.setFont("Helvetica-Bold", 14)
+
+        pdf.drawString(
+            50,
+            y,
+            "Recent Analysis Results"
+        )
+
+        y -= 25
+
+        pdf.setFont("Helvetica-Bold", 9)
+
+        pdf.drawString(50, y, "Date")
+        pdf.drawString(155, y, "Sentiment")
+        pdf.drawString(245, y, "Text")
+
+        y -= 15
+
+        pdf.setFont("Helvetica", 8)
+
+        for document in documents[:30]:
+
+            if y < 60:
+
                 pdf.showPage()
+
                 y = page_height - 50
 
-            pdf.setFont("Helvetica-Bold", 10)
-            pdf.drawString(
-                40,
-                y,
-                f"{index}. Sentiment: {doc.get('sentiment', 'N/A')}"
+                pdf.setFont("Helvetica-Bold", 9)
+
+                pdf.drawString(50, y, "Date")
+                pdf.drawString(155, y, "Sentiment")
+                pdf.drawString(245, y, "Text")
+
+                y -= 15
+
+                pdf.setFont("Helvetica", 8)
+
+            created_at = document.get("created_at")
+
+            if isinstance(created_at, datetime):
+
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(
+                        tzinfo=timezone.utc
+                    )
+
+                date_text = (
+                    created_at.astimezone(IST)
+                    .strftime("%Y-%m-%d %H:%M")
+                )
+
+            else:
+                date_text = "N/A"
+
+            sentiment = get_sentiment_label(
+                document.get(
+                    "sentiment",
+                    document.get("prediction", "Unknown")
+                )
             )
-            y -= 16
 
-            pdf.setFont("Helvetica", 9)
+            text = str(document.get("text", ""))
 
-            text = str(doc.get("text", "")).replace("\n", " ")
-            text = text.encode(
-                "latin-1",
-                "replace"
-            ).decode("latin-1")
+            # Keep each row readable in the PDF.
+            if len(text) > 55:
+                text = text[:52] + "..."
 
-            pdf.drawString(
-                50,
-                y,
-                f"Text: {text[:100]}"
-            )
-            y -= 15
+            pdf.drawString(50, y, date_text)
+            pdf.drawString(155, y, sentiment)
+            pdf.drawString(245, y, text)
 
-            pdf.drawString(
-                50,
-                y,
-                f"Compound score: {doc.get('compound', 'N/A')}"
-            )
-            y -= 25
+            y -= 17
 
         pdf.save()
+
         pdf_buffer.seek(0)
 
         return send_file(
             pdf_buffer,
             mimetype="application/pdf",
             as_attachment=True,
-            download_name="ai_smart_analysis_report.pdf"
+            download_name="sentiment_analysis_report.pdf"
         )
 
-    except Exception as error:
-        app.logger.exception("PDF report generation failed")
+    except Exception:
+
+        app.logger.exception(
+            "Unable to generate PDF report"
+        )
 
         return jsonify({
             "status": "error",
-            "message": "Unable to generate PDF report.",
-            "details": str(error)
+            "message": "Unable to generate the PDF report."
         }), 500
 
 
+# ============================================================
+# 11. START FLASK SERVER
+# ============================================================
+
 if __name__ == "__main__":
+
     app.run(
-        debug=True,
-        port=5000
+        host="127.0.0.1",
+        port=5000,
+        debug=True
     )

@@ -602,33 +602,40 @@ export default function App() {
   }, []);
 
   /* -----------------------------------------------------
-     FETCH HISTORY
-  ----------------------------------------------------- */
+   FETCH HISTORY
+----------------------------------------------------- */
 
-  const fetchHistory = useCallback(async () => {
-    setHistoryLoading(true);
-    setHistoryError("");
+const fetchHistory = useCallback(async () => {
+  setHistoryLoading(true);
+  setHistoryError("");
 
-    try {
-      const response = await API.get("/api/history");
+  try {
+    const response = await API.get("/api/history");
 
-      const data = response.data || {};
+    const data = response.data || {};
 
-      const records = Array.isArray(data)
-        ? data
-        : data.history || data.records || [];
+    // Support the response format returned by Flask
+    const records = Array.isArray(data)
+      ? data
+      : data.results ||
+        data.history ||
+        data.records ||
+        [];
 
-      setHistory(records);
-    } catch (err) {
-      console.error("History fetch error:", err);
+    setHistory(records);
 
-      setHistoryError(
-        "Unable to load analysis history. Please check the backend."
-      );
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, []);
+    console.log("History API response:", data);
+    console.log("History records loaded:", records.length);
+  } catch (err) {
+    console.error("History fetch error:", err);
+
+    setHistoryError(
+      "Unable to load analysis history. Please check the backend."
+    );
+  } finally {
+    setHistoryLoading(false);
+  }
+}, []);
 
   /* -----------------------------------------------------
      FETCH TRENDS
