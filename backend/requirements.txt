@@ -4,3 +4,4 @@ vaderSentiment
 pymongo
 python-dotenv
 reportlab
+tzdata

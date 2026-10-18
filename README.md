@@ -1,358 +1,305 @@
-\# AI Smart Analysis Dashboard
+# AI Smart Analysis Dashboard
 
+## 1. Project Overview
 
+The AI Smart Analysis Dashboard is a full-stack web application that performs sentiment analysis on text and displays the results through an interactive dashboard.
 
-\## 1. Project Overview
+The application uses React and Vite for the frontend, Flask for the backend REST API, MongoDB for storing analysis history, and VADER for sentiment analysis.
 
+Users can submit text for sentiment analysis, view the predicted sentiment, explore previous analyses, review statistics and trends, and download reports.
 
+## 2. Features
 
-The AI Smart Analysis Dashboard is a full-stack web application that performs sentiment analysis on text and presents analysis results through a dashboard. It uses React and Vite for the frontend, Flask for the backend REST API, MongoDB for storing analysis history, and VADER for sentiment analysis.
+* Text-based sentiment analysis.
+* Positive, Negative, and Neutral sentiment classification.
+* Sentiment compound score and individual sentiment scores.
+* React frontend integrated with a Flask REST API.
+* MongoDB storage for analysis results.
+* Analysis history with timestamps.
+* Dashboard statistics for sentiment categories.
+* Sentiment trend visualization.
+* Interactive charts.
+* PDF report generation.
+* CSV export of analysis data.
+* Backend health-check endpoint.
+* Date and time display configured for Indian Standard Time (IST).
 
-
-
-\## 2. Features
-
-
-
-\* Text sentiment analysis
-
-\* Positive, negative, and neutral sentiment classification
-
-\* REST API integration between React and Flask
-
-\* MongoDB storage for analysis results
-
-\* Analysis history
-
-\* Dashboard statistics and trends
-
-\* Data visualization using charts
-
-\* PDF report generation
-
-\* Frontend and backend health-check endpoints
-
-
-
-\## 3. Technologies Used
-
-
+## 3. Technologies Used
 
 | Technology      | Purpose                                    |
-
 | --------------- | ------------------------------------------ |
-
 | React           | Frontend user interface                    |
-
 | Vite            | Frontend development server and build tool |
-
+| JavaScript      | Frontend programming                       |
 | Python          | Backend programming                        |
-
 | Flask           | REST API development                       |
-
 | Flask-CORS      | Cross-origin API communication             |
-
-| VADER Sentiment | Text sentiment analysis                    |
-
+| VADER Sentiment | Rule-based sentiment analysis              |
 | MongoDB         | Database                                   |
-
 | PyMongo         | MongoDB integration                        |
-
-| Axios           | HTTP requests from frontend                |
-
+| Axios           | HTTP requests from the frontend            |
+| Recharts        | Dashboard charts and visualizations        |
 | ReportLab       | PDF report generation                      |
+| Git             | Version control                            |
+| GitHub          | Source-code hosting                        |
 
-| Git and GitHub  | Version control and collaboration          |
-
-
-
-\## 4. Project Structure
-
-
+## 4. Project Structure
 
 ```text
-
 fullstack-ai-app/
-
 ├── backend/
-
 │   ├── app.py
-
 │   ├── db.py
-
 │   ├── requirements.txt
-
-│   └── .env
-
+│   ├── .env
+│   └── .venv/
 ├── frontend/
-
 │   ├── src/
-
 │   ├── public/
-
 │   ├── package.json
-
+│   ├── package-lock.json
 │   └── README.md
-
 ├── .gitignore
-
 └── README.md
-
 ```
 
+Note: The structure above illustrates the main project files. Your actual directory may contain additional files.
 
+The `.env` file contains local configuration and must not be committed to GitHub. The virtual environment should also remain excluded from version control.
 
-Note: The `.env` file contains local configuration and must not be committed to GitHub. It is shown above only to explain the local project structure.
+## 5. Prerequisites
 
+Install the following software before running the project:
 
+* Python 3.9 or later.
+* Node.js and npm.
+* MongoDB installed locally or a MongoDB Atlas account.
+* Git.
+* A code editor such as Visual Studio Code.
 
-\## 5. Prerequisites
+## 6. Backend Setup
 
+### Step 1: Open the Project
 
-
-Install the following software:
-
-
-
-\* Python
-
-\* Node.js and npm
-
-\* MongoDB, either locally or through MongoDB Atlas
-
-\* Git
-
-
-
-\## 6. Backend Setup
-
-
-
-Open a terminal in the project root directory.
-
-
-
-Create a Python virtual environment:
-
-
+Open a terminal in the project root directory:
 
 ```powershell
+cd fullstack-ai-app
+```
 
+Navigate to the backend directory:
+
+```powershell
 cd backend
+```
 
+### Step 2: Create a Virtual Environment
+
+```powershell
 python -m venv .venv
-
 ```
 
+### Step 3: Activate the Virtual Environment
 
-
-Activate the virtual environment:
-
-
+On Windows PowerShell:
 
 ```powershell
-
-.\\.venv\\Scripts\\Activate.ps1
-
+.\.venv\Scripts\Activate.ps1
 ```
 
-
-
-Install the backend dependencies:
-
-
+### Step 4: Install Dependencies
 
 ```powershell
-
-pip install -r requirements.txt
-
+python -m pip install -r requirements.txt
 ```
 
+The requirements file should include the packages needed by the application, including `tzdata` for timezone support on Windows.
 
+### Step 5: Configure Environment Variables
 
-\### Environment Configuration
+Create a `.env` file inside the `backend` directory.
 
-
-
-Create a `.env` file inside the `backend` directory and configure your MongoDB connection:
-
-
+Example configuration for a local MongoDB instance:
 
 ```env
-
-MONGO\_URI=mongodb://127.0.0.1:27017/
-
-DB\_NAME=ai\_smart\_dashboard
-
+MONGO_URI=mongodb://127.0.0.1:27017/
+DB_NAME=ai_smart_dashboard
 ```
 
+Use your actual connection settings if you use MongoDB Atlas.
 
+Never publish database passwords, credentials, or private connection strings.
 
-Use your actual MongoDB connection settings if you are using MongoDB Atlas. Never publish database credentials or connection strings containing passwords.
+### Step 6: Start the Backend
 
-
-
-\### Run the Backend
-
-
+Run:
 
 ```powershell
-
 python app.py
-
 ```
 
-
-
-Keep the backend terminal running.
-
-
-
-\## 7. Frontend Setup
-
-
-
-Open a second terminal and navigate to the frontend directory:
-
-
-
-```powershell
-
-cd frontend
-
-npm install
-
-npm run dev
-
-```
-
-
-
-Open the local URL printed by Vite in your terminal, usually:
-
-
+The backend normally runs at:
 
 ```text
-
-http://localhost:5173
-
+http://127.0.0.1:5000
 ```
 
+Keep the backend terminal open while using the application.
 
+## 7. Frontend Setup
 
-\## 8. Backend API Endpoints
+Open a second terminal in Visual Studio Code.
 
+Navigate to the frontend directory from the project root:
 
+```powershell
+cd frontend
+```
 
-| Method | Endpoint          | Purpose                           |
+Install the frontend dependencies:
 
-| ------ | ----------------- | --------------------------------- |
+```powershell
+npm install
+```
 
-| GET    | `/`               | Backend home endpoint             |
+Start the Vite development server:
 
-| GET    | `/api/health`     | Check backend health              |
+```powershell
+npm run dev
+```
 
-| POST   | `/api/sentiment`  | Analyze text sentiment            |
+Open the local URL displayed by Vite. It is usually:
 
-| GET    | `/api/history`    | Retrieve analysis history         |
+```text
+http://localhost:5173
+```
 
-| GET    | `/api/stats`      | Retrieve dashboard statistics     |
+Keep both frontend and backend terminals running during development.
 
-| GET    | `/api/trends`     | Retrieve analysis trends          |
+## 8. Backend API Endpoints
 
-| GET    | `/api/report/pdf` | Generate or download a PDF report |
+| Method | Endpoint          | Purpose                            |
+| ------ | ----------------- | ---------------------------------- |
+| GET    | `/`               | Check the backend home endpoint    |
+| GET    | `/api/health`     | Check backend health               |
+| POST   | `/api/sentiment`  | Analyze text sentiment             |
+| GET    | `/api/history`    | Retrieve analysis history          |
+| GET    | `/api/stats`      | Retrieve dashboard statistics      |
+| GET    | `/api/trends`     | Retrieve sentiment trends          |
+| GET    | `/api/report/pdf` | Generate and download a PDF report |
 
+### Example Sentiment Analysis Request
 
+Endpoint:
 
-The exact request format and response fields depend on the implementation in `backend/app.py`.
+```text
+POST http://127.0.0.1:5000/api/sentiment
+```
 
+Request body:
 
+```json
+{
+  "text": "I am very happy today!"
+}
+```
 
-\## 9. Database
+Example of the relevant response fields:
 
+```json
+{
+  "status": "success",
+  "sentiment": "Positive",
+  "compound": 0.6696,
+  "text": "I am very happy today!"
+}
+```
 
+The actual response also includes additional fields, including a nested `result` object and sentiment scores.
 
-The application uses MongoDB to store analysis results.
+## 9. Database
 
+The application uses MongoDB to store sentiment analysis results.
 
+| Item       | Value                |
+| ---------- | -------------------- |
+| Database   | `ai_smart_dashboard` |
+| Collection | `analysis_results`   |
 
-\* Database: `ai\_smart\_dashboard` by default
+The database name can be configured using the `DB_NAME` environment variable.
 
-\* Collection: `analysis\_results`
+The MongoDB connection URI is configured through `MONGO_URI`.
 
+Analysis records include the input text, predicted sentiment, compound score, sentiment scores, and creation timestamp.
 
+## 10. Testing
 
-The database name can be changed using the `DB\_NAME` environment variable.
+Perform the following checks before submitting or demonstrating the project:
 
+1. Verify that the Flask backend starts without errors.
+2. Verify that MongoDB connects successfully.
+3. Open `/api/health` and confirm the successful response.
+4. Verify that the React frontend starts successfully.
+5. Confirm that the frontend communicates with the backend.
+6. Test Positive sentiment using clearly positive text.
+7. Test Negative sentiment using clearly negative text.
+8. Test Neutral sentiment using neutral text.
+9. Verify that analysis history displays the results.
+10. Check dashboard statistics and charts.
+11. Verify that timestamps display correctly.
+12. Download and open the PDF report.
+13. Export the analysis data to CSV.
+14. Test API endpoints using Postman, if required for submission.
 
+Actual test results and screenshots should be recorded separately for project documentation.
 
-\## 10. Testing
-
-
-
-Verify the following:
-
-
-
-1\. The Flask backend starts without errors.
-
-2\. The MongoDB connection succeeds.
-
-3\. The backend health endpoint returns a successful response.
-
-4\. The frontend starts using Vite.
-
-5\. The frontend can communicate with the Flask API.
-
-6\. Text sentiment analysis returns a result.
-
-7\. Analysis history and dashboard statistics load correctly.
-
-8\. PDF report generation works.
-
-
-
-\## 11. Version Control
-
-
+## 11. Version Control
 
 Git is used to track source-code changes, and GitHub hosts the repository.
 
+The repository is maintained on the `master` branch.
 
+Example Git commands:
 
-The project uses a feature branch for documentation changes before those changes are submitted for review and merged into the main development branch.
+```powershell
+git status
+git add .
+git commit -m "Update project files"
+git push origin master
+```
 
+Review the changes before committing. Do not commit environment files, credentials, or virtual environments.
 
+## 12. Security Notes
 
-\## 12. Security Notes
+* Never commit `.env` files or database credentials.
+* Keep virtual environments and dependency folders out of Git.
+* Validate incoming API data.
+* Configure CORS to allow only trusted frontend origins.
+* Store production secrets in environment variables.
+* Use appropriate authentication and access controls before exposing sensitive endpoints publicly.
+* Do not expose database credentials in frontend code or public documentation.
 
+## 13. Limitations
 
+* VADER is a rule-based sentiment analyzer and may not correctly interpret every sentence.
+* Sarcasm, context-dependent language, slang, and complex expressions can affect predictions.
+* Sentiment predictions should not be treated as guaranteed or universally accurate.
+* Reliable accuracy, precision, recall, and F1-score measurements require an appropriately labeled evaluation dataset.
 
-\* Never commit `.env` files or database credentials.
+## 14. Future Enhancements
 
-\* Keep virtual environments and dependency folders out of Git.
+* Evaluate sentiment performance using labeled datasets.
+* Add additional sentiment analysis models.
+* Improve input validation and error handling.
+* Add authentication and user-specific analysis history.
+* Support additional languages.
+* Add Docker-based deployment.
+* Deploy the application to a production environment.
+* Add production monitoring and logging.
 
-\* Validate incoming API data.
+## 15. Conclusion
 
-\* Configure CORS for trusted frontend origins.
+The AI Smart Analysis Dashboard demonstrates the integration of a React frontend, Flask REST API, MongoDB database, and VADER sentiment analysis.
 
-\* Store production secrets in environment variables.
-
-
-
-\## 13. Future Enhancements
-
-
-
-\* Image classification
-
-\* Speech-to-text input
-
-\* Additional model evaluation metrics
-
-\* Docker-based deployment
-
-\* Production deployment and monitoring
-
-
-
+The application supports sentiment classification, analysis history, dashboard statistics, trend visualization, and report export. It provides a foundation for further improvements, evaluation, and deployment.
