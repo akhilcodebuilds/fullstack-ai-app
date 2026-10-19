@@ -2,8 +2,10 @@ from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 
 import joblib
+import json
+
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from io import BytesIO
 
@@ -35,7 +37,7 @@ CORS(
 
 
 # ============================================================
-# 2. LOAD TRAINED MACHINE LEARNING MODEL
+# 2. PATHS AND MACHINE LEARNING MODEL
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -43,14 +45,18 @@ PROJECT_DIR = BASE_DIR.parent
 
 MODEL_PATH = PROJECT_DIR / "models" / "sentiment_model.joblib"
 
+METRICS_PATH = PROJECT_DIR / "models" / "evaluation_metrics.json"
+
 if not MODEL_PATH.exists():
     raise FileNotFoundError(
-        f"Trained model not found: {MODEL_PATH}"
+        f"Trained model not found: {MODEL_PATH}. "
+        "Please run train_model.py first."
     )
 
 ml_model = joblib.load(MODEL_PATH)
 
 print("Trained ML model loaded successfully!")
+print("Model path:", MODEL_PATH)
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -100,13 +106,11 @@ def get_all_results():
     Retrieve analysis records from MongoDB.
     """
 
-    documents = list(
+    return list(
         analysis_collection.find().sort(
             "created_at", -1
         )
     )
-
-    return documents
 
 
 def get_sentiment_counts(documents):
@@ -180,7 +184,6 @@ def sentiment_analysis():
         data = request.get_json(silent=True)
 
         if not isinstance(data, dict):
-
             return jsonify({
                 "status": "error",
                 "message": (
@@ -192,7 +195,6 @@ def sentiment_analysis():
         text = data.get("text", "")
 
         if not isinstance(text, str):
-
             return jsonify({
                 "status": "error",
                 "message": (
@@ -203,7 +205,6 @@ def sentiment_analysis():
         text = text.strip()
 
         if not text:
-
             return jsonify({
                 "status": "error",
                 "message": "Please enter some text to analyze."
@@ -220,7 +221,6 @@ def sentiment_analysis():
         if hasattr(ml_model, "predict_proba"):
 
             classes = ml_model.classes_
-
             values = ml_model.predict_proba([text])[0]
 
             probabilities = {
@@ -347,9 +347,7 @@ def stats():
     try:
 
         documents = get_all_results()
-
         counts = get_sentiment_counts(documents)
-
         total = len(documents)
 
         return jsonify({
@@ -384,7 +382,6 @@ def trends():
     try:
 
         documents = get_all_results()
-
         daily_counts = {}
 
         for document in documents:
@@ -456,7 +453,89 @@ def trends():
 
 
 # ============================================================
-# 10. PDF REPORT API
+# 10. MODEL PERFORMANCE API
+# ============================================================
+
+@app.route("/api/model-performance", methods=["GET"])
+def model_performance():
+
+    try:
+
+        if not METRICS_PATH.exists():
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Evaluation metrics not found. "
+                    "Please run train_model.py first."
+                )
+            }), 404
+
+        with open(
+            METRICS_PATH,
+            "r",
+            encoding="utf-8"
+        ) as file:
+            metrics = json.load(file)
+
+        report = metrics.get(
+            "classification_report",
+            {}
+        )
+
+        labels = metrics.get(
+            "labels",
+            ["negative", "neutral", "positive"]
+        )
+
+        class_metrics = {}
+
+        for label in labels:
+
+            values = report.get(label, {})
+
+            class_metrics[label.capitalize()] = {
+                "precision": values.get("precision", 0),
+                "recall": values.get("recall", 0),
+                "f1_score": values.get("f1-score", 0),
+                "support": values.get("support", 0)
+            }
+
+        return jsonify({
+            "status": "success",
+            "model": "TF-IDF + Logistic Regression",
+            "accuracy": metrics.get("accuracy", 0),
+            "training_records": metrics.get(
+                "training_records", 0
+            ),
+            "labeled_test_records": metrics.get(
+                "labeled_test_records", 0
+            ),
+            "labels": [
+                label.capitalize()
+                for label in labels
+            ],
+            "classification_report": class_metrics,
+            "confusion_matrix": metrics.get(
+                "confusion_matrix", []
+            )
+        }), 200
+
+    except Exception:
+
+        app.logger.exception(
+            "Unable to retrieve model performance"
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": (
+                "Unable to retrieve model performance."
+            )
+        }), 500
+
+
+# ============================================================
+# 11. PDF REPORT API
 # ============================================================
 
 @app.route("/api/report/pdf", methods=["GET"])
@@ -465,9 +544,7 @@ def report_pdf():
     try:
 
         documents = get_all_results()
-
         counts = get_sentiment_counts(documents)
-
         total = len(documents)
 
         pdf_buffer = BytesIO()
@@ -477,7 +554,7 @@ def report_pdf():
             pagesize=letter
         )
 
-        page_width, page_height = letter
+        _, page_height = letter
 
         # Report title.
         pdf.setTitle("AI Smart Analysis Dashboard Report")
@@ -538,7 +615,6 @@ def report_pdf():
         for line in summary_lines:
 
             pdf.drawString(60, y, line)
-
             y -= 20
 
         # Recent analysis section.
@@ -619,7 +695,6 @@ def report_pdf():
             y -= 17
 
         pdf.save()
-
         pdf_buffer.seek(0)
 
         return send_file(
@@ -642,7 +717,7 @@ def report_pdf():
 
 
 # ============================================================
-# 11. START FLASK SERVER
+# 12. START FLASK SERVER
 # ============================================================
 
 if __name__ == "__main__":
